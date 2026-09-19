@@ -9,16 +9,21 @@
     :license: BSD, see LICENSE for more details.
 """
 import os
+import pickle
 import tempfile
 import shutil
 
 import pytest
 from jinja2 import Environment, Undefined, DebugUndefined, \
-     StrictUndefined, UndefinedError, meta, \
+     StrictUndefined, ChainableUndefined, UndefinedError, meta, \
      is_undefined, Template, DictLoader, make_logging_undefined
 from jinja2.compiler import CodeGenerator
 from jinja2.runtime import Context
-from jinja2.utils import Cycler
+from jinja2.utils import Cycler, missing
+
+
+class CustomChainableUndefined(ChainableUndefined):
+    pass
 
 
 @pytest.mark.api
@@ -303,6 +308,129 @@ class TestUndefined(object):
             Undefined(obj=42, name='upper')()
         except UndefinedError as e:
             assert e.message == "'int object' has no attribute 'upper'"
+        else:
+            assert False, 'expected exception'
+
+    def test_chainable_undefined(self):
+        env = Environment(undefined=ChainableUndefined)
+        # chaining returns the very same undefined object
+        undefined = ChainableUndefined(name='missing')
+        assert undefined.user['address'].city is undefined
+        # mixed attribute and item chains keep returning the undefined
+        assert env.from_string(
+            "{{ missing.user['address'].city[0] }}").render() == u''
+        # ... and work with the default filter
+        assert env.from_string(
+            "{{ missing.user['address'].city|default('N/A') }}").render() \
+            == 'N/A'
+        assert env.from_string(
+            "{{ missing['user'].address.city is not defined }}").render() \
+            == 'True'
+        # string, boolean and iteration semantics of the default undefined
+        assert env.from_string(
+            "{% if missing.user.address %}T{% else %}F{% endif %}"
+        ).render() == 'F'
+        assert env.from_string(
+            "{% for x in missing.user.address %}[{{ x }}]{% endfor %}"
+        ).render() == ''
+        assert env.from_string("{{ missing.user|list }}").render() == '[]'
+        # operations that are not allowed still fail, pointing at the
+        # name that was originally missing
+        pytest.raises(UndefinedError,
+                      env.from_string('{{ missing.user.address + 1 }}').render)
+        pytest.raises(UndefinedError,
+                      env.from_string('{{ missing["user"] < 42 }}').render)
+        pytest.raises(UndefinedError,
+                      env.from_string('{{ missing.user() }}').render)
+        try:
+            env.from_string('{{ missing.user.address + 1 }}').render()
+        except UndefinedError as e:
+            assert e.message == "'missing' is undefined"
+        else:
+            assert False, 'expected exception'
+
+    def test_chainable_undefined_missing_levels(self):
+        env = Environment(undefined=ChainableUndefined)
+        # the top level name is missing
+        assert env.from_string(
+            "{{ missing.user.address.city|default('N/A') }}").render() \
+            == 'N/A'
+        # an attribute of an existing object is missing
+        assert env.from_string(
+            "{{ user.address.city|default('N/A') }}").render(user={}) == 'N/A'
+        # an item of an existing object is missing
+        assert env.from_string(
+            "{{ user['address'].city|default('N/A') }}").render(user={}) \
+            == 'N/A'
+        # a value deeper in the chain is missing
+        user = {'address': {}}
+        assert env.from_string(
+            "{{ user.address['city'].zip|default('N/A') }}").render(
+            user=user) == 'N/A'
+        # existing values are not affected by chaining
+        user = {'address': {'city': 'Vienna'}}
+        assert env.from_string(
+            "{{ user.address['city'] }}").render(user=user) == 'Vienna'
+
+    def test_chainable_undefined_private_attributes(self):
+        undefined = ChainableUndefined(name='foo')
+        # private attributes must not be swallowed by the chaining
+        pytest.raises(AttributeError, getattr, undefined, '__hidden__')
+        pytest.raises(AttributeError, undefined.__getitem__, '__hidden__')
+        pytest.raises(AttributeError, getattr, undefined, '_undefined_foo')
+        pytest.raises(AttributeError, undefined.__getitem__, '_hidden')
+        # regular special attributes still work
+        assert undefined.__class__ is ChainableUndefined
+        # the stored private information is still accessible
+        assert undefined._undefined_name == 'foo'
+        # in templates a private attribute access degrades to a regular
+        # undefined instead of raising
+        env = Environment(undefined=ChainableUndefined)
+        assert env.from_string(
+            "{{ missing._hidden.x|default('N/A') }}").render() == 'N/A'
+
+    def test_chainable_undefined_subclass(self):
+        env = Environment(undefined=CustomChainableUndefined)
+        assert env.from_string(
+            "{{ missing.user['address'].city|default('N/A') }}").render() \
+            == 'N/A'
+        pytest.raises(UndefinedError,
+                      env.from_string('{{ missing.user + 1 }}').render)
+        undefined = env.undefined(name='missing')
+        assert type(undefined.user['address']) is CustomChainableUndefined
+
+    def test_chainable_logging_undefined(self):
+        logging_undefined = make_logging_undefined(
+            base=ChainableUndefined)
+        env = Environment(undefined=logging_undefined)
+        assert env.from_string(
+            "{{ missing.user['address']|default('N/A') }}").render() == 'N/A'
+
+    def test_chainable_undefined_pickle(self):
+        env = Environment(undefined=ChainableUndefined)
+        for undefined in (
+                env.undefined(name='missing'),
+                env.undefined(obj={'a': 1}, name='address'),
+                env.undefined('custom hint', name='missing'),
+                CustomChainableUndefined(name='missing')):
+            for protocol in range(pickle.HIGHEST_PROTOCOL + 1):
+                restored = pickle.loads(pickle.dumps(undefined, protocol))
+                assert type(restored) is type(undefined)
+                assert restored._undefined_hint == undefined._undefined_hint
+                assert restored._undefined_obj == undefined._undefined_obj
+                assert restored._undefined_name == undefined._undefined_name
+                assert restored._undefined_exception is \
+                    undefined._undefined_exception
+                # the restored undefined is still chainable
+                assert restored.user['address'].city is restored
+                pytest.raises(UndefinedError, lambda: restored.user + 1)
+        # the missing singleton keeps its identity through pickling
+        restored = pickle.loads(pickle.dumps(env.undefined(name='missing')))
+        assert restored._undefined_obj is missing
+        try:
+            restored.user.address + 1
+        except UndefinedError as e:
+            assert e.message == "'missing' is undefined"
         else:
             assert False, 'expected exception'
 

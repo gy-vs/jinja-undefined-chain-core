@@ -30,8 +30,17 @@ _entity_re = re.compile(r'&([^;]+);')
 _letters = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'
 _digits = '0123456789'
 
+class _MissingType(object):
+    def __repr__(self):
+        return 'missing'
+
+    def __reduce__(self):
+        # pickle by reference so that the singleton identity is kept
+        return 'missing'
+
+
 # special singleton representing missing values for the runtime
-missing = type('MissingType', (), {'__repr__': lambda x: 'missing'})()
+missing = _MissingType()
 
 # internal code
 internal_code = set()

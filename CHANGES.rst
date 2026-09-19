@@ -14,6 +14,11 @@ unreleased
   slow initial import. (`#765`_)
 - Python 2.6 and 3.3 are not supported anymore.
 - The `map` filter in async mode now automatically awaits
+- Added :class:`ChainableUndefined`, an undefined type that allows
+  chaining attribute and item access without failing immediately, so
+  that filters such as ``default`` can provide a fallback at the end
+  of the chain.  The ``missing`` singleton is now picklable, which
+  also makes undefined objects picklable.
 
 .. _#765: https://github.com/pallets/jinja/issues/765
 

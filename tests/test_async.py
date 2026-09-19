@@ -1,7 +1,7 @@
 import pytest
 import asyncio
 
-from jinja2 import Template, Environment, DictLoader
+from jinja2 import Template, Environment, DictLoader, ChainableUndefined
 from jinja2.exceptions import TemplateNotFound, TemplatesNotFound, \
      UndefinedError
 
@@ -9,6 +9,26 @@ from jinja2.exceptions import TemplateNotFound, TemplatesNotFound, \
 def run(coro):
     loop = asyncio.get_event_loop()
     return loop.run_until_complete(coro)
+
+
+def test_chainable_undefined_async():
+    env = Environment(enable_async=True, undefined=ChainableUndefined)
+    t = env.from_string(
+        "{{ missing.user['address'].city|default('N/A') }}")
+    async def func():
+        return await t.render_async()
+
+    rv = run(func())
+    assert rv == 'N/A'
+
+
+def test_chainable_undefined_async_error():
+    env = Environment(enable_async=True, undefined=ChainableUndefined)
+    t = env.from_string("{{ missing.user.address + 1 }}")
+    async def func():
+        return await t.render_async()
+
+    pytest.raises(UndefinedError, run, func())
 
 
 def test_basic_async():

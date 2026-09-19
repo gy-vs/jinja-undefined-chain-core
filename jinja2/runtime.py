@@ -803,6 +803,52 @@ class StrictUndefined(Undefined):
         Undefined._fail_with_undefined_error
 
 
+@implements_to_string
+class ChainableUndefined(Undefined):
+    """An undefined that is chainable, where both ``__getattr__`` and
+    ``__getitem__`` return itself rather than raising an
+    :exc:`UndefinedError`.  The name of the value that was originally
+    missing is kept around, so the moment an operation that is not
+    allowed on undefined values is performed the error still points at
+    the root of the chain.
+
+    >>> foo = ChainableUndefined(name='foo')
+    >>> str(foo.bar['baz'])
+    ''
+    >>> foo.bar['baz'] + 42
+    Traceback (most recent call last):
+      ...
+    jinja2.exceptions.UndefinedError: 'foo' is undefined
+
+    Private attributes (names starting with an underscore) are not
+    chained but raise an :exc:`AttributeError` instead, so that the
+    object protocol (pickling, copying and friends) keeps working:
+
+    >>> foo.__deepcopy__
+    Traceback (most recent call last):
+      ...
+    AttributeError: __deepcopy__
+
+    .. versionadded:: 2.11
+    """
+    __slots__ = ()
+
+    def __getattr__(self, name):
+        if name[:1] == '_':
+            raise AttributeError(name)
+        return self
+
+    __getitem__ = __getattr__
+
+    def __reduce__(self):
+        # Pickling support: reconstruct through the regular constructor
+        # so that the information about what is missing is retained.
+        return (self.__class__, (self._undefined_hint, self._undefined_obj,
+                                 self._undefined_name,
+                                 self._undefined_exception))
+
+
 # remove remaining slots attributes, after the metaclass did the magic they
 # are unneeded and irritating as they contain wrong data for the subclasses.
-del Undefined.__slots__, DebugUndefined.__slots__, StrictUndefined.__slots__
+del Undefined.__slots__, DebugUndefined.__slots__, StrictUndefined.__slots__, \
+    ChainableUndefined.__slots__
