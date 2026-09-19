@@ -1,7 +1,7 @@
 import pytest
 import asyncio
 
-from jinja2 import Template, Environment, DictLoader
+from jinja2 import Template, Environment, DictLoader, ChainableUndefined
 from jinja2.exceptions import TemplateNotFound, TemplatesNotFound, \
      UndefinedError
 
@@ -57,6 +57,22 @@ def test_await_on_calls_normal_render():
     )
 
     assert rv == '65'
+
+
+def test_chainable_undefined_async():
+    env = Environment(enable_async=True, undefined=ChainableUndefined)
+    t = env.from_string(
+        "{{ missing.user['address'].city }}|"
+        "{{ missing.user.address.city|default('n/a') }}")
+
+    async def func():
+        return await t.render_async()
+
+    rv = run(func())
+    assert rv == '|n/a'
+
+    # sync rendering on the same environment works as well
+    assert t.render() == '|n/a'
 
 
 def test_await_and_macros():

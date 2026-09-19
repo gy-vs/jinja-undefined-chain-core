@@ -803,6 +803,60 @@ class StrictUndefined(Undefined):
         Undefined._fail_with_undefined_error
 
 
+@implements_to_string
+class ChainableUndefined(Undefined):
+    """An undefined that is chainable, where both ``__getattr__`` and
+    ``__getitem__`` return itself rather than raising an
+    :exc:`UndefinedError`.  This means that attribute and item accesses
+    can be chained arbitrarily deep and only operations that are not
+    allowed for undefined values in general (such as arithmetic) fail:
+
+    >>> foo = ChainableUndefined(name='foo')
+    >>> str(foo.bar['baz'])
+    ''
+    >>> foo.bar['baz'] + 42
+    Traceback (most recent call last):
+      ...
+    jinja2.exceptions.UndefinedError: 'foo' is undefined
+
+    Because the undefined object itself is returned, the information
+    about the originally missing name is retained for the error message.
+
+    Private attributes (names starting with an underscore) are not
+    swallowed by the chain but raise :exc:`AttributeError` instead, so
+    that Python protocols relying on them (such as copying and pickling)
+    keep working:
+
+    >>> foo.__deepcopy__
+    Traceback (most recent call last):
+      ...
+    AttributeError: __deepcopy__
+
+    .. versionadded:: 2.11
+    """
+    __slots__ = ()
+
+    def __getattr__(self, name):
+        if name[:1] == '_':
+            raise AttributeError(name)
+        return self
+
+    def __getitem__(self, key):
+        return self
+
+    def __getstate__(self):
+        # The base class deletes its __slots__ attribute after class
+        # creation, so the default pickling machinery cannot find the
+        # slot names any more.  Provide the state explicitly.
+        return dict((name, getattr(self, name)) for name in (
+            '_undefined_hint', '_undefined_obj',
+            '_undefined_name', '_undefined_exception'))
+
+    def __setstate__(self, state):
+        for name, value in iteritems(state):
+            setattr(self, name, value)
+
+
 # remove remaining slots attributes, after the metaclass did the magic they
 # are unneeded and irritating as they contain wrong data for the subclasses.
 del Undefined.__slots__, DebugUndefined.__slots__, StrictUndefined.__slots__

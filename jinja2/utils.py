@@ -30,8 +30,14 @@ _entity_re = re.compile(r'&([^;]+);')
 _letters = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'
 _digits = '0123456789'
 
-# special singleton representing missing values for the runtime
-missing = type('MissingType', (), {'__repr__': lambda x: 'missing'})()
+# special singleton representing missing values for the runtime.  The
+# __reduce__ makes sure the singleton is preserved when it is pickled
+# or copied, for example as part of an undefined object.
+missing = type('MissingType', (), {
+    '__module__': __name__,
+    '__repr__': lambda x: 'missing',
+    '__reduce__': lambda x: 'missing',
+})()
 
 # internal code
 internal_code = set()

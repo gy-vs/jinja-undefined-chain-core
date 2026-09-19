@@ -357,6 +357,8 @@ disallows all operations beside testing if it's an undefined object.
 
 .. autoclass:: jinja2.StrictUndefined()
 
+.. autoclass:: jinja2.ChainableUndefined()
+
 There is also a factory function that can decorate undefined objects to
 implement logging on failures:
 
